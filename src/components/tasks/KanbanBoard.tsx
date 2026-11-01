@@ -55,7 +55,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
               setDragId(null);
             }}
             className={cn(
-              "flex min-w-[188px] flex-1 flex-col rounded-card border bg-canvas transition-colors",
+              "flex min-w-[264px] flex-1 flex-col rounded-card border bg-canvas transition-colors",
               isOver ? "border-accent bg-accent-soft/40" : "border-line",
             )}
           >
