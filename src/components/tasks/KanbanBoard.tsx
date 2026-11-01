@@ -31,7 +31,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   };
 
   return (
-    <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pt-1 pb-4 sm:-mx-6 sm:px-6">
+    <div className="-mx-4 flex h-full min-h-0 gap-3 overflow-x-auto px-4 pt-1 pb-4 sm:-mx-6 sm:px-6">
       {STATUSES.map((status) => {
         const columnTasks = tasks.filter((t) => t.status === status);
         const meta = statusMeta[status];
@@ -55,7 +55,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
               setDragId(null);
             }}
             className={cn(
-              "flex w-[272px] shrink-0 flex-col rounded-card border bg-canvas transition-colors",
+              "flex min-w-[188px] flex-1 flex-col rounded-card border bg-canvas transition-colors",
               isOver ? "border-accent bg-accent-soft/40" : "border-line",
             )}
           >
@@ -75,7 +75,7 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
               </IconButton>
             </header>
 
-            <div className="flex min-h-16 flex-1 flex-col gap-2 px-2 pb-2">
+            <div className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
               {columnTasks.map((task) => (
                 <TaskCard key={task.id} task={task} onDragStart={() => setDragId(task.id)} />
               ))}

@@ -94,7 +94,7 @@ export function TasksPage() {
   ];
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="flex h-full min-w-0 flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-[22px] font-semibold tracking-[-0.02em]">My Tasks</h2>
@@ -243,7 +243,9 @@ export function TasksPage() {
           </ul>
         )
       ) : view === "board" ? (
-        <KanbanBoard tasks={filtered} />
+        <div className="min-h-0 flex-1">
+          <KanbanBoard tasks={filtered} />
+        </div>
       ) : (
         <CalendarView tasks={filtered} />
       )}

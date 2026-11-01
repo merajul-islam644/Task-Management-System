@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { MobileNav } from "./MobileNav";
@@ -14,6 +14,7 @@ import { TooltipProvider } from "@/components/ui/Tooltip";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
 import { useApplyTheme } from "@/hooks/useTheme";
+import { cn } from "@/lib/utils";
 
 export function AppShell() {
   const load = useDataStore((s) => s.load);
@@ -22,6 +23,9 @@ export function AppShell() {
   const setAiOpen = useUiStore((s) => s.setAiOpen);
   const openTaskForm = useUiStore((s) => s.openTaskForm);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { pathname } = useLocation();
+  // The board wants every pixel it can get; reading-heavy pages stay capped.
+  const wideContent = pathname.startsWith("/tasks");
 
   useApplyTheme();
 
@@ -55,13 +59,16 @@ export function AppShell() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className="flex min-h-screen">
+      <div className="flex h-dvh overflow-hidden">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar onOpenMobileNav={() => setMobileNavOpen(true)} />
           <main
             data-loading={dataStatus === "loading" || undefined}
-            className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-5 sm:px-6 sm:py-6"
+            className={cn(
+              "no-scrollbar mx-auto w-full flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6",
+              wideContent ? "max-w-[1760px]" : "max-w-[1200px]",
+            )}
           >
             <Outlet />
           </main>
