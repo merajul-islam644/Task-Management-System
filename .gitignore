@@ -1,6 +1,7 @@
 # Secrets — never commit (deploy env vars go through blocks release secrets sync)
 .env
 .env.*
+!.env.production
 !.env.example
 
 # Per-machine local HTTPS certificates
