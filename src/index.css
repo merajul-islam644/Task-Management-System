@@ -1,0 +1,248 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------------------------------------------------------------------------
+   Design tokens — FlowTask
+   Light: barely-warm paper canvas, warm ink. Dark: deep charcoal.
+   One accent (iris violet); semantic colors reserved for state.
+--------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  --canvas: #f6f6f3;
+  --surface: #ffffff;
+  --surface-hover: #f1f1ec;
+  --line: #e6e5de;
+  --line-strong: #d4d3ca;
+
+  --ink: #1c1b17;
+  --ink-2: #6f6d63;
+  --ink-3: #8a887c;
+
+  --accent: #4f52cc;
+  --accent-hover: #4346bb;
+  --accent-ink: #4548bd;
+  --accent-soft: #edecfa;
+  --accent-soft-line: #cdcdee;
+  --on-accent: #ffffff;
+  --ring: rgba(79, 82, 204, 0.4);
+
+  --ok: #1a7f4e;
+  --ok-soft: #e0f2e8;
+  --ok-line: #bfe2cf;
+
+  --warn: #8f5d06;
+  --warn-soft: #f7edd8;
+  --warn-line: #e8d5ac;
+
+  --danger: #b32f2a;
+  --danger-soft: #f9e6e3;
+  --danger-line: #eec6c1;
+
+  /* Project identity hues (validated: lightness band, chroma, CVD ΔE, contrast).
+     Always paired with a text label. */
+  --hue-iris: #4f52cc;
+  --hue-teal: #00997f;
+  --hue-amber: #a96f10;
+  --hue-rose: #c2427a;
+  --hue-green: #4c7d2c;
+
+  --overlay: rgba(28, 27, 23, 0.32);
+  --shadow-pop: 0 1px 2px rgba(28, 27, 23, 0.06), 0 8px 24px rgba(28, 27, 23, 0.1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #131315;
+  --surface: #1b1b1e;
+  --surface-hover: #242428;
+  --line: #2b2b30;
+  --line-strong: #3b3b42;
+
+  --ink: #ececef;
+  --ink-2: #a5a4ae;
+  --ink-3: #7b7a84;
+
+  --accent: #7b7ef0;
+  --accent-hover: #8f92f4;
+  --accent-ink: #a3a5f6;
+  --accent-soft: #26264c;
+  --accent-soft-line: #3d3d75;
+  --accent-solid: #5c5fd6;
+  --accent-solid-hover: #6a6de2;
+  --on-accent: #ffffff;
+  --ring: rgba(123, 126, 240, 0.5);
+
+  --ok: #5ec78f;
+  --ok-soft: #16301f;
+  --ok-line: #2a4f37;
+
+  --warn: #e3b04b;
+  --warn-soft: #33290f;
+  --warn-line: #54431c;
+
+  --danger: #f08d84;
+  --danger-soft: #381c19;
+  --danger-line: #5f302b;
+
+  --hue-iris: #8286f0;
+  --hue-teal: #1fa88b;
+  --hue-amber: #c28425;
+  --hue-rose: #cf5f86;
+  --hue-green: #619b47;
+
+  --overlay: rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-line: var(--accent-soft-line);
+  --color-accent-solid: var(--accent-solid, var(--accent));
+  --color-accent-solid-hover: var(--accent-solid-hover, var(--accent-hover));
+  --color-on-accent: var(--on-accent);
+  --color-ring: var(--ring);
+
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-line: var(--ok-line);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-line: var(--warn-line);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+
+  --color-hue-iris: var(--hue-iris);
+  --color-hue-teal: var(--hue-teal);
+  --color-hue-amber: var(--hue-amber);
+  --color-hue-rose: var(--hue-rose);
+  --color-hue-green: var(--hue-green);
+
+  --color-overlay: var(--overlay);
+
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+
+  --radius-ctl: 8px;
+  --radius-card: 12px;
+
+  --shadow-pop: var(--shadow-pop);
+}
+
+@layer base {
+  html {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100%;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Subtle scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--ink-3);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Radix animation presets — brief opacity/transform only */
+@keyframes ft-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ft-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes ft-slide-from-right {
+  from {
+    transform: translateX(24px);
+  }
+}
+@keyframes ft-slide-to-right {
+  to {
+    transform: translateX(24px);
+  }
+}
+@keyframes ft-slide-from-left {
+  from {
+    transform: translateX(-24px);
+  }
+}
+@keyframes ft-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+[data-radix-popper-content-wrapper] {
+  z-index: 60 !important;
+}
