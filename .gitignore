@@ -14,3 +14,5 @@ dist/
 npm-cache/
 .playwright-mcp/
 *.local
+.env.local
+.env.*.local
