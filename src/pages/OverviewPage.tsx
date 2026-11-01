@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { ArrowRight, ListTodo, Plus, Sparkles, Sun } from "lucide-react";
+import { ArrowRight, CircleCheck, ListTodo, Plus, Sparkles, Sun } from "lucide-react";
 import type { Task } from "@/types";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
@@ -36,6 +36,10 @@ export function OverviewPage() {
   const upcoming = openTasks
     .filter((t) => t.dueDate && parseDate(t.dueDate) > endOfDay(today))
     .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
+    .slice(0, 4);
+  const completedRecently = tasks
+    .filter((t) => t.status === "done" && t.updatedAt)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
     .slice(0, 4);
 
   return (
@@ -75,8 +79,8 @@ export function OverviewPage() {
           </div>
         </div>
       ) : (
-        <div className="grid items-start gap-5 xl:grid-cols-3">
-          {/* Today + Upcoming */}
+        <div className="grid gap-5 xl:grid-cols-3">
+          {/* Today + Upcoming + Completed */}
           <div className="flex min-w-0 flex-col gap-5 xl:col-span-2">
             <section aria-label="Today" className="overflow-hidden rounded-card border border-line bg-surface">
               <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
@@ -109,7 +113,10 @@ export function OverviewPage() {
               )}
             </section>
 
-            <section aria-label="Upcoming" className="overflow-hidden rounded-card border border-line bg-surface">
+            <section
+              aria-label="Upcoming"
+              className="flex flex-1 flex-col overflow-hidden rounded-card border border-line bg-surface"
+            >
               <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
                 <h3 className="text-[13.5px] font-semibold">Upcoming</h3>
               </header>
@@ -127,13 +134,37 @@ export function OverviewPage() {
                 </ul>
               )}
             </section>
+
+            <section
+              aria-label="Completed recently"
+              className="flex flex-1 flex-col overflow-hidden rounded-card border border-line bg-surface"
+            >
+              <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+                <h3 className="flex items-center gap-2 text-[13.5px] font-semibold">
+                  <CircleCheck size={14} aria-hidden className="text-ok" />
+                  Completed recently
+                  <span className="tnum text-[12px] font-normal text-ink-3">{completedRecently.length}</span>
+                </h3>
+              </header>
+              {completedRecently.length === 0 ? (
+                <p className="px-4 py-4 text-[12.5px] text-ink-3">
+                  Nothing completed yet — finish a task and it will show up here.
+                </p>
+              ) : (
+                <ul role="list">
+                  {completedRecently.map((task) => (
+                    <TaskRow key={task.id} task={task} />
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
 
           {/* Right rail */}
           <div className="flex min-w-0 flex-col gap-5">
             <FocusPanel />
             <ProjectProgressPanel />
-            <ActivityFeed />
+            <ActivityFeed className="flex-1" />
           </div>
         </div>
       )}

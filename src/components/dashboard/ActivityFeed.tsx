@@ -6,7 +6,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { cn, parseDate } from "@/lib/utils";
 
 /** Latest workspace events; the full list lives in the bell's notification panel. */
-export function ActivityFeed() {
+export function ActivityFeed({ className }: { className?: string }) {
   const activities = useDataStore((s) => s.activities);
   const users = useDataStore((s) => s.users);
   const openTask = useUiStore((s) => s.openTask);
@@ -14,7 +14,7 @@ export function ActivityFeed() {
   const recent = [...activities].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
 
   return (
-    <section aria-label="Recent activity" className="rounded-card border border-line bg-surface p-4">
+    <section aria-label="Recent activity" className={cn("rounded-card border border-line bg-surface p-4", className)}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-[13.5px] font-semibold">Activity</h2>
         <button

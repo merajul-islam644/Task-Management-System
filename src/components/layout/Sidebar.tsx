@@ -11,7 +11,6 @@ import {
   Settings,
 } from "lucide-react";
 import { cn, initials } from "@/lib/utils";
-import { hueMeta } from "@/lib/meta";
 import { useUiStore } from "@/store/ui";
 import { useDataStore } from "@/store/data";
 import { useAuth, useDisplayName } from "@/app/providers/AuthProvider";
@@ -47,7 +46,6 @@ export function LogoMark({ size = 24 }: { size?: number }) {
 export function Sidebar() {
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
-  const projects = useDataStore((s) => s.projects);
   const avatarFileId = useDataStore((s) => s.avatarFileId);
   const avatarUrl = useAvatarUrl(avatarFileId || undefined);
   const { claims } = useAuth();
@@ -106,39 +104,6 @@ export function Sidebar() {
           </NavLink>
         ))}
 
-        {/* Projects */}
-        {!collapsed && (
-          <p className="mt-4 mb-1 px-2 text-[11px] font-medium tracking-wide text-ink-3">{t("nav.projects")}</p>
-        )}
-        {/* Active projects only — archived ones live in the Projects page's Archived view. */}
-        {projects.filter((p) => !p.archived).slice(0, 5).map((project) => (
-          <NavLink
-            key={project.id}
-            to={`/projects/${project.id}`}
-            className={({ isActive }) =>
-              cn(
-                "flex h-8 items-center gap-2.5 rounded-ctl px-2 text-[13px] transition-colors",
-                collapsed && "justify-center px-0",
-                isActive ? "bg-surface-hover text-ink font-medium" : "text-ink-2 hover:bg-surface-hover hover:text-ink",
-              )
-            }
-          >
-            <span
-              aria-hidden
-              className={cn("h-2 w-2 shrink-0 rounded-full", hueMeta[project.color].dot)}
-            />
-            {!collapsed && <span className="truncate">{project.name}</span>}
-          </NavLink>
-        ))}
-        {!collapsed && (
-          <NavLink
-            to="/projects"
-            className="flex h-8 items-center gap-2.5 rounded-ctl px-2 text-[13px] text-ink-3 transition-colors hover:bg-surface-hover hover:text-ink"
-          >
-            <Folder size={14} strokeWidth={1.9} aria-hidden />
-            <span>{t("nav.allProjects")}</span>
-          </NavLink>
-        )}
       </nav>
 
       {/* Bottom */}
