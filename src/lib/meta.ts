@@ -7,6 +7,7 @@ import {
   CircleCheck,
   CircleDashed,
   Circle,
+  Columns3,
   Eye,
   Megaphone,
   MessageSquare,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import type {
   ActivityKind,
+  BoardColumn,
   HueName,
   ProjectStatus,
   TaskPriority,
@@ -32,10 +34,14 @@ export const STATUSES: TaskStatus[] = [
   "done",
 ];
 
-export const statusMeta: Record<
-  TaskStatus,
-  { label: string; icon: LucideIcon; chip: string; dot: string }
-> = {
+export interface StatusMeta {
+  label: string;
+  icon: LucideIcon;
+  chip: string;
+  dot: string;
+}
+
+export const statusMeta: Record<TaskStatus, StatusMeta> = {
   backlog: {
     label: "Backlog",
     icon: CircleDashed,
@@ -67,6 +73,77 @@ export const statusMeta: Record<
     dot: "text-ok",
   },
 };
+
+/** Neutral look for user-created columns (and ids whose column went missing). */
+const customColumnMeta: StatusMeta = {
+  label: "",
+  icon: Columns3,
+  chip: "bg-surface-hover text-ink-2 border-line",
+  dot: "text-ink-3",
+};
+
+/** Meta for any status id: built-ins resolve to statusMeta, custom columns to
+    a neutral treatment carrying the column's own label. */
+export function columnMeta(status: string, columns: BoardColumn[]): StatusMeta {
+  const builtIn = statusMeta[status as TaskStatus];
+  if (builtIn) return builtIn;
+  const label = columns.find((c) => c.id === status)?.label;
+  return { ...customColumnMeta, label: label || status };
+}
+
+/** Human label for any status id, tolerating ids whose column was deleted. */
+export function columnLabel(status: string, columns: BoardColumn[]): string {
+  return columnMeta(status, columns).label;
+}
+
+/** The board's full column sequence: persisted order first (skipping unknown
+    ids), then anything not yet placed — built-ins and customs always end up
+    present, defaults trailing if the layout predates them. */
+export function fullColumnOrder(columns: BoardColumn[], order: string[] = []): string[] {
+  const builtInSet = new Set<string>(STATUSES);
+  const customIds = new Set(columns.map((c) => c.id));
+  const placed = order.filter((id) => builtInSet.has(id) || customIds.has(id));
+  const rest = [
+    ...STATUSES,
+    ...[...columns].sort((a, b) => a.order - b.order).map((c) => c.id),
+  ].filter((id) => !placed.includes(id));
+  return [...placed, ...rest];
+}
+
+/** Ordered board columns for the Kanban view, honoring the persisted layout.
+    `isDefault` marks the immutable five. */
+export function displayColumns(
+  columns: BoardColumn[],
+  order: string[] = [],
+): { id: string; label: string; icon: LucideIcon; dot: string; isDefault: boolean }[] {
+  const customById = new Map(columns.map((c) => [c.id, c]));
+  return fullColumnOrder(columns, order).map((id) => {
+    const builtIn = statusMeta[id as TaskStatus];
+    if (builtIn) {
+      return { id, label: builtIn.label, icon: builtIn.icon, dot: builtIn.dot, isDefault: true };
+    }
+    const custom = customById.get(id);
+    return {
+      id,
+      label: custom?.label || id,
+      icon: customColumnMeta.icon,
+      dot: customColumnMeta.dot,
+      isDefault: false,
+    };
+  });
+}
+
+/** Options for a status <Select>: built-ins first, then custom columns. */
+export function columnOptions(
+  columns: BoardColumn[],
+): { value: string; label: string }[] {
+  return [
+    ...STATUSES.map((s) => ({ value: s, label: statusMeta[s].label })),
+    ...[...columns]
+      .sort((a, b) => a.order - b.order)
+      .map((c) => ({ value: c.id, label: c.label })),
+  ];
+}
 
 /* ---------------------------------------------------------------- priority */
 

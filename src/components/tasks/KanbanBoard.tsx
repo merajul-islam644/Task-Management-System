@@ -1,27 +1,51 @@
-import { useState } from "react";
-import { CheckSquare, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
-import type { Task, TaskStatus } from "@/types";
+import { Fragment, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, CheckSquare, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import type { Task } from "@/types";
 import { cn } from "@/lib/utils";
-import { STATUSES, hueMeta, statusMeta } from "@/lib/meta";
+import { displayColumns, hueMeta } from "@/lib/meta";
+import type { StatusMeta } from "@/lib/meta";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
 import { toast } from "@/store/toast";
 import { Avatar } from "@/components/ui/Avatar";
-import { IconButton } from "@/components/ui/Button";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/DropdownMenu";
 import { DueChip, PriorityChip } from "./chips";
 
+/** One board column as rendered: built-ins and customs share this shape. */
+interface BoardColumnView {
+  id: string;
+  label: string;
+  icon: StatusMeta["icon"];
+  dot: string;
+  isDefault: boolean;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Please try again.";
+}
+
 /**
- * Kanban board. Cards drag between columns (HTML5 DnD); every card also has a
+ * Kanban board. The five built-in columns are immutable; user-created columns
+ * can be added before or after ANY column, renamed, and deleted (while empty).
+ * The column sequence itself is persisted, so customs can sit between
+ * built-ins. Cards drag between columns (HTML5 DnD); every card also has a
  * "Move to" menu so status changes never depend on dragging (a11y requirement).
  */
 export function KanbanBoard({ tasks }: { tasks: Task[] }) {
   const [dragId, setDragId] = useState<string | null>(null);
-  const [overColumn, setOverColumn] = useState<TaskStatus | null>(null);
+  const [overColumn, setOverColumn] = useState<string | null>(null);
+  /** Open add-column composer's index in the display order; null = closed. */
+  const [composerAt, setComposerAt] = useState<number | null>(null);
+  const boardColumns = useDataStore((s) => s.boardColumns);
+  const columnOrder = useDataStore((s) => s.columnOrder);
   const updateTask = useDataStore((s) => s.updateTask);
   const openTaskForm = useUiStore((s) => s.openTaskForm);
 
-  const moveTo = async (taskId: string, status: TaskStatus) => {
+  const columns = displayColumns(boardColumns, columnOrder);
+
+  const moveTo = async (taskId: string, status: string) => {
     try {
       await updateTask(taskId, { status });
       if (status === "done") toast.success("Task completed");
@@ -32,62 +56,234 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
 
   return (
     <div className="-mx-4 flex h-full min-h-0 gap-3 overflow-x-auto px-4 pt-1 pb-4 sm:-mx-6 sm:px-6">
-      {STATUSES.map((status) => {
-        const columnTasks = tasks.filter((t) => t.status === status);
-        const meta = statusMeta[status];
-        const isOver = overColumn === status;
+      {composerAt === 0 && <AddColumnCard position={0} onDone={() => setComposerAt(null)} />}
+      {columns.map((column, i) => {        const columnTasks = tasks.filter((t) => t.status === column.id);
+        const isOver = overColumn === column.id;
         return (
-          <section
-            key={status}
-            aria-label={`${meta.label} column, ${columnTasks.length} tasks`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOverColumn(status);
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverColumn(null);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              setOverColumn(null);
-              const id = dragId ?? e.dataTransfer.getData("text/plain");
-              if (id) void moveTo(id, status);
-              setDragId(null);
-            }}
-            className={cn(
-              "flex min-w-[264px] flex-1 flex-col rounded-card border bg-canvas transition-colors",
-              isOver ? "border-accent bg-accent-soft/40" : "border-line",
-            )}
-          >
-            <header className="flex items-center gap-2 px-3 pt-3 pb-2">
-              <meta.icon size={13.5} aria-hidden className={meta.dot} />
-              <h3 className="text-[12.5px] font-semibold text-ink">{meta.label}</h3>
-              <span className="tnum rounded-full bg-surface-hover px-1.5 text-[11px] font-medium text-ink-2">
-                {columnTasks.length}
-              </span>
-              <IconButton
-                label={`Add task to ${meta.label}`}
-                size="sm"
-                className="ml-auto"
-                onClick={() => openTaskForm({ status })}
-              >
-                <Plus size={14} />
-              </IconButton>
-            </header>
-
-            <div className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
-              {columnTasks.map((task) => (
-                <TaskCard key={task.id} task={task} onDragStart={() => setDragId(task.id)} />
-              ))}
-              {columnTasks.length === 0 && (
-                <p className="rounded-ctl border border-dashed border-line px-3 py-4 text-center text-[12px] text-ink-3">
-                  Nothing here — drag a card over or add one.
-                </p>
+          <Fragment key={column.id}>
+            <section
+              aria-label={`${column.label} column, ${columnTasks.length} tasks`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOverColumn(column.id);
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverColumn(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setOverColumn(null);
+                const id = dragId ?? e.dataTransfer.getData("text/plain");
+                if (id) void moveTo(id, column.id);
+                setDragId(null);
+              }}
+              className={cn(
+                "flex min-w-[264px] flex-1 flex-col rounded-card border bg-canvas transition-colors",
+                isOver ? "border-accent bg-accent-soft/40" : "border-line",
               )}
-            </div>
-          </section>
+            >
+              <ColumnHeader
+                column={column}
+                count={columnTasks.length}
+                onAddTask={() => openTaskForm({ status: column.id })}
+                onInsertBefore={() => setComposerAt(i)}
+                onInsertAfter={() => setComposerAt(i + 1)}
+              />
+
+              <div className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+                {columnTasks.map((task) => (
+                  <TaskCard key={task.id} task={task} onDragStart={() => setDragId(task.id)} />
+                ))}
+                {columnTasks.length === 0 && (
+                  <p className="rounded-ctl border border-dashed border-line px-3 py-4 text-center text-[12px] text-ink-3">
+                    Nothing here — drag a card over or add one.
+                  </p>
+                )}
+              </div>
+            </section>
+            {composerAt === i + 1 && <AddColumnCard position={i + 1} onDone={() => setComposerAt(null)} />}
+          </Fragment>
         );
       })}
+    </div>
+  );
+}
+
+function ColumnHeader({
+  column,
+  count,
+  onAddTask,
+  onInsertBefore,
+  onInsertAfter,
+}: {
+  column: BoardColumnView;
+  count: number;
+  onAddTask: () => void;
+  onInsertBefore: () => void;
+  onInsertAfter: () => void;
+}) {
+  const renameColumn = useDataStore((s) => s.renameColumn);
+  const deleteColumn = useDataStore((s) => s.deleteColumn);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(column.label);
+  const savingRef = useRef(false);
+  const Icon = column.icon;
+
+  const saveRename = async () => {
+    if (savingRef.current) return;
+    const clean = draft.trim();
+    setRenaming(false);
+    if (!clean || clean === column.label) return;
+    savingRef.current = true;
+    try {
+      await renameColumn(column.id, clean);
+      toast.success("Column renamed", clean);
+    } catch (error) {
+      toast.error("Could not rename the column", errorMessage(error));
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  const remove = async () => {
+    try {
+      await deleteColumn(column.id);
+      toast.success("Column deleted", column.label);
+    } catch (error) {
+      // Custom columns refuse to delete while tasks still sit in them.
+      toast.error("Could not delete the column", errorMessage(error));
+    }
+  };
+
+  return (
+    <header className="flex items-center gap-2 px-3 pt-3 pb-2">
+      <Icon size={13.5} aria-hidden className={column.dot} />
+      {renaming ? (
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void saveRename()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void saveRename();
+            }
+            if (e.key === "Escape") {
+              setRenaming(false);
+              setDraft(column.label);
+            }
+          }}
+          aria-label="Column name"
+          autoFocus
+          className="h-6 flex-1 px-1.5 text-[12.5px] font-semibold"
+        />
+      ) : (
+        <h3 className="text-[12.5px] font-semibold text-ink">{column.label}</h3>
+      )}
+      <span className="tnum rounded-full bg-surface-hover px-1.5 text-[11px] font-medium text-ink-2">
+        {count}
+      </span>
+      <IconButton
+        label={`Add task to ${column.label}`}
+        size="sm"
+        className="ml-auto"
+        onClick={onAddTask}
+      >
+        <Plus size={14} />
+      </IconButton>
+      {!renaming && (
+        <Menu>
+          <MenuTrigger asChild>
+            <IconButton label={`Column options for ${column.label}`} size="sm">
+              <MoreHorizontal size={14} />
+            </IconButton>
+          </MenuTrigger>
+          <MenuContent>
+            <MenuItem onSelect={onInsertBefore}>
+              <ArrowLeft size={13} aria-hidden /> Insert column before
+            </MenuItem>
+            <MenuItem onSelect={onInsertAfter}>
+              <ArrowRight size={13} aria-hidden /> Insert column after
+            </MenuItem>
+            {!column.isDefault && (
+              <>
+                <MenuSeparator />
+                <MenuItem
+                  onSelect={() => {
+                    setDraft(column.label);
+                    setRenaming(true);
+                  }}
+                >
+                  <Pencil size={13} aria-hidden /> Rename column
+                </MenuItem>
+                <MenuItem danger onSelect={() => void remove()}>
+                  <Trash2 size={13} aria-hidden /> Delete column
+                </MenuItem>
+              </>
+            )}
+          </MenuContent>
+        </Menu>
+      )}
+    </header>
+  );
+}
+
+/** Inline composer at a given spot in the column sequence. Enter adds,
+    Escape cancels. */
+function AddColumnCard({ position, onDone }: { position: number; onDone: () => void }) {
+  const createColumn = useDataStore((s) => s.createColumn);
+  const [draft, setDraft] = useState("");
+  const savingRef = useRef(false);
+
+  const submit = async () => {
+    if (savingRef.current) return;
+    const clean = draft.trim();
+    if (!clean) {
+      onDone();
+      return;
+    }
+    savingRef.current = true;
+    try {
+      await createColumn(clean, position);
+      toast.success("Column added", clean);
+      onDone();
+    } catch (error) {
+      toast.error("Could not add the column", errorMessage(error));
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  const cancel = () => {
+    setDraft("");
+    onDone();
+  };
+
+  return (
+    <div className="flex w-[264px] shrink-0 flex-col gap-2 self-start rounded-card border border-accent bg-canvas p-2">
+      <Input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void submit();
+          }
+          if (e.key === "Escape") cancel();
+        }}
+        onBlur={() => void submit()}
+        placeholder="Column name"
+        aria-label="New column name"
+        autoFocus
+      />
+      <div className="flex justify-end gap-1.5">
+        <Button variant="ghost" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={cancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={() => void submit()}>
+          Add
+        </Button>
+      </div>
     </div>
   );
 }
@@ -95,6 +291,8 @@ export function KanbanBoard({ tasks }: { tasks: Task[] }) {
 function TaskCard({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
   const users = useDataStore((s) => s.users);
   const projects = useDataStore((s) => s.projects);
+  const boardColumns = useDataStore((s) => s.boardColumns);
+  const columnOrder = useDataStore((s) => s.columnOrder);
   const openTask = useUiStore((s) => s.openTask);
   const openTaskForm = useUiStore((s) => s.openTaskForm);
   const askDeleteTask = useUiStore((s) => s.askDeleteTask);
@@ -105,6 +303,7 @@ function TaskCard({ task, onDragStart }: { task: Task; onDragStart: () => void }
   const subtasks = task.subtasks?.length ?? 0;
   const subtasksDone = task.subtasks?.filter((s) => s.completed).length ?? 0;
   const done = task.status === "done";
+  const moveTargets = displayColumns(boardColumns, columnOrder).filter((c) => c.id !== task.status);
 
   return (
     <article
@@ -121,7 +320,7 @@ function TaskCard({ task, onDragStart }: { task: Task; onDragStart: () => void }
           type="button"
           onClick={() => openTask(task.id)}
           className={cn(
-            "min-w-0 flex-1 text-left text-[13px] leading-snug font-medium",
+            "min-w-0 flex-1 rounded-[4px] text-left text-[13px] leading-snug font-medium decoration-1 underline-offset-2 transition-colors hover:text-accent-ink hover:underline",
             done ? "text-ink-3 line-through" : "text-ink",
           )}
         >
@@ -135,19 +334,19 @@ function TaskCard({ task, onDragStart }: { task: Task; onDragStart: () => void }
           </MenuTrigger>
           <MenuContent>
             <MenuLabel>Move to</MenuLabel>
-            {STATUSES.filter((s) => s !== task.status).map((s) => {
-              const Icon = statusMeta[s].icon;
+            {moveTargets.map((column) => {
+              const Icon = column.icon;
               return (
                 <MenuItem
-                  key={s}
+                  key={column.id}
                   onSelect={() => {
-                    void updateTask(task.id, { status: s }).then(() => {
-                      if (s === "done") toast.success("Task completed", task.title);
+                    void updateTask(task.id, { status: column.id }).then(() => {
+                      if (column.id === "done") toast.success("Task completed", task.title);
                     });
                   }}
                 >
-                  <Icon size={13} aria-hidden className={statusMeta[s].dot} />
-                  {statusMeta[s].label}
+                  <Icon size={13} aria-hidden className={column.dot} />
+                  {column.label}
                 </MenuItem>
               );
             })}

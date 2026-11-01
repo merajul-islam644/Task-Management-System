@@ -1,11 +1,13 @@
 import { CalendarClock, CircleAlert, Clock } from "lucide-react";
-import type { Project, TaskPriority, TaskStatus } from "@/types";
-import { hueMeta, priorityMeta, statusMeta } from "@/lib/meta";
+import type { Project, TaskPriority } from "@/types";
+import { columnMeta, hueMeta, priorityMeta } from "@/lib/meta";
 import { cn, dueLabel } from "@/lib/utils";
+import { useDataStore } from "@/store/data";
 import { Badge } from "@/components/ui/Badge";
 
-export function StatusChip({ status, className }: { status: TaskStatus; className?: string }) {
-  const meta = statusMeta[status];
+export function StatusChip({ status, className }: { status: string; className?: string }) {
+  const columns = useDataStore((s) => s.boardColumns);
+  const meta = columnMeta(status, columns);
   const Icon = meta.icon;
   return (
     <Badge className={cn(meta.chip, className)}>

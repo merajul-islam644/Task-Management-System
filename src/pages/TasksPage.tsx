@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { isAfter, parseISO, startOfDay } from "date-fns";
 import { FilterX, ListTodo, Plus, Search, Calendar, Columns3 } from "lucide-react";
-import type { TaskPriority, TaskStatus } from "@/types";
-import { PRIORITIES, STATUSES, priorityMeta, statusMeta } from "@/lib/meta";
+import type { TaskPriority } from "@/types";
+import { PRIORITIES, columnOptions, priorityMeta } from "@/lib/meta";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
 import { Button } from "@/components/ui/Button";
@@ -23,19 +23,20 @@ export function TasksPage() {
   const tasks = useDataStore((s) => s.tasks);
   const status = useDataStore((s) => s.status);
   const projects = useDataStore((s) => s.projects);
+  const boardColumns = useDataStore((s) => s.boardColumns);
   const openTaskForm = useUiStore((s) => s.openTaskForm);
   const [params, setParams] = useSearchParams();
 
-  const view = (params.get("view") as View) || "list";
+  const view = (params.get("view") as View) || "board";
   const [query, setQuery] = useState("");
-  const [fStatus, setFStatus] = useState<TaskStatus | "">("");
+  const [fStatus, setFStatus] = useState<string>("");
   const [fPriority, setFPriority] = useState<TaskPriority | "">("");
   const [fProject, setFProject] = useState("");
   const [fDue, setFDue] = useState<DueFilter>(((params.get("due") as DueFilter) || "") as DueFilter);
   const [sort, setSort] = useState<SortKey>("due");
 
   const setView = (v: View) => {
-    setParams(v === "list" ? {} : { view: v }, { replace: true });
+    setParams(v === "board" ? {} : { view: v }, { replace: true });
   };
 
   const filtered = useMemo(() => {
@@ -88,8 +89,8 @@ export function TasksPage() {
   };
 
   const views: { value: View; label: string; icon: typeof ListTodo }[] = [
-    { value: "list", label: "List", icon: ListTodo },
     { value: "board", label: "Board", icon: Columns3 },
+    { value: "list", label: "List", icon: ListTodo },
     { value: "calendar", label: "Calendar", icon: Calendar },
   ];
 
@@ -126,11 +127,8 @@ export function TasksPage() {
             ariaLabel="Filter by status"
             placeholder="Status"
             value={fStatus}
-            onValueChange={(v) => setFStatus(v as TaskStatus | "")}
-            options={[
-              { value: "", label: "All statuses" },
-              ...STATUSES.map((s) => ({ value: s, label: statusMeta[s].label })),
-            ]}
+            onValueChange={setFStatus}
+            options={[{ value: "", label: "All statuses" }, ...columnOptions(boardColumns)]}
           />
           <Select
             ariaLabel="Filter by priority"

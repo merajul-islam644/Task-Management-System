@@ -22,8 +22,8 @@ import { HelpDialog } from "./HelpDialog";
 
 const NAV = [
   { to: "/", key: "nav.overview", icon: LayoutDashboard },
-  { to: "/tasks", key: "nav.tasks", icon: ListTodo },
   { to: "/projects", key: "nav.projects", icon: Folder },
+  { to: "/tasks", key: "nav.tasks", icon: ListTodo },
   { to: "/calendar", key: "nav.calendar", icon: Calendar },
 ] as const;
 

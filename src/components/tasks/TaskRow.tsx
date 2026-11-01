@@ -1,7 +1,7 @@
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import type { Task, TaskStatus } from "@/types";
+import type { Task } from "@/types";
 import { cn } from "@/lib/utils";
-import { STATUSES, statusMeta } from "@/lib/meta";
+import { displayColumns } from "@/lib/meta";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
 import { toast } from "@/store/toast";
@@ -23,6 +23,8 @@ interface TaskRowProps {
 export function TaskRow({ task, showProject = true, onEdit, onDelete }: TaskRowProps) {
   const users = useDataStore((s) => s.users);
   const projects = useDataStore((s) => s.projects);
+  const boardColumns = useDataStore((s) => s.boardColumns);
+  const columnOrder = useDataStore((s) => s.columnOrder);
   const toggleDone = useDataStore((s) => s.toggleTaskDone);
   const updateTask = useDataStore((s) => s.updateTask);
   const openTask = useUiStore((s) => s.openTask);
@@ -32,11 +34,12 @@ export function TaskRow({ task, showProject = true, onEdit, onDelete }: TaskRowP
   const done = task.status === "done";
   const subtasks = task.subtasks?.length ?? 0;
   const subtasksDone = task.subtasks?.filter((s) => s.completed).length ?? 0;
+  const moveTargets = displayColumns(boardColumns, columnOrder).filter((c) => c.id !== task.status);
   // Default surfaces; the optional props let a page override them.
   const openTaskForm = useUiStore((s) => s.openTaskForm);
   const askDeleteTask = useUiStore((s) => s.askDeleteTask);
 
-  const changeStatus = async (status: TaskStatus) => {
+  const changeStatus = async (status: string) => {
     try {
       await updateTask(task.id, { status });
       if (status === "done") toast.success("Task completed", task.title);
@@ -121,12 +124,12 @@ export function TaskRow({ task, showProject = true, onEdit, onDelete }: TaskRowP
             </MenuTrigger>
             <MenuContent>
               <MenuLabel>Move to</MenuLabel>
-              {STATUSES.filter((s) => s !== task.status).map((s) => {
-                const Icon = statusMeta[s].icon;
+              {moveTargets.map((column) => {
+                const Icon = column.icon;
                 return (
-                  <MenuItem key={s} onSelect={() => void changeStatus(s)}>
-                    <Icon size={13} aria-hidden className={statusMeta[s].dot} />
-                    {statusMeta[s].label}
+                  <MenuItem key={column.id} onSelect={() => void changeStatus(column.id)}>
+                    <Icon size={13} aria-hidden className={column.dot} />
+                    {column.label}
                   </MenuItem>
                 );
               })}

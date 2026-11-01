@@ -3,11 +3,11 @@ import { Dialog, DialogContent, DialogHeader } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { PRIORITIES, STATUSES, priorityMeta, statusMeta } from "@/lib/meta";
+import { PRIORITIES, columnOptions, priorityMeta } from "@/lib/meta";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
 import { toast } from "@/store/toast";
-import type { TaskPriority, TaskStatus } from "@/types";
+import type { TaskPriority } from "@/types";
 
 /** Create/edit task dialog. One instance, mounted app-wide. */
 export function TaskFormDialog() {
@@ -16,6 +16,7 @@ export function TaskFormDialog() {
   const tasks = useDataStore((s) => s.tasks);
   const projects = useDataStore((s) => s.projects);
   const users = useDataStore((s) => s.users);
+  const boardColumns = useDataStore((s) => s.boardColumns);
   const currentUserId = useDataStore((s) => s.currentUserId);
   const createTask = useDataStore((s) => s.createTask);
   const updateTask = useDataStore((s) => s.updateTask);
@@ -25,7 +26,7 @@ export function TaskFormDialog() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [proj, setProj] = useState<string>("");
-  const [stat, setStat] = useState<TaskStatus>("todo");
+  const [stat, setStat] = useState<string>("todo");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [due, setDue] = useState("");
   const [assignee, setAssignee] = useState<string>(currentUserId);
@@ -47,7 +48,7 @@ export function TaskFormDialog() {
       setTitle("");
       setDescription("");
       setProj(projectId ?? projects[0]?.id ?? "");
-      setStat((status as TaskStatus) ?? "todo");
+      setStat(status ?? "todo");
       setPriority("medium");
       setDue(dueDate ? dueDate.slice(0, 10) : "");
       setAssignee(currentUserId);
@@ -144,8 +145,8 @@ export function TaskFormDialog() {
               <Select
                 ariaLabel="Status"
                 value={stat}
-                onValueChange={(v) => setStat(v as TaskStatus)}
-                options={STATUSES.map((s) => ({ value: s, label: statusMeta[s].label }))}
+                onValueChange={setStat}
+                options={columnOptions(boardColumns)}
               />
             </Field>
             <Field label="Priority" htmlFor="task-priority">

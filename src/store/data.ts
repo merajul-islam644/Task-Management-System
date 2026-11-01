@@ -3,22 +3,24 @@ import { format } from "date-fns";
 import type {
   Activity,
   AISuggestedTask,
+  BoardColumn,
   Project,
   ProjectInput,
   Task,
   TaskInput,
-  TaskStatus,
   User,
 } from "@/types";
 import * as taskService from "@/services/taskService";
 import * as projectService from "@/services/projectService";
 import * as activityService from "@/services/activityService";
 import * as avatarService from "@/services/avatarService";
+import * as boardColumnService from "@/services/boardColumnService";
 import * as notificationService from "@/services/notificationService";
 import * as userService from "@/services/userService";
 import * as mailService from "@/services/mailService";
 import type { NotificationPayload } from "@/services/notificationService";
 import { invalidateAvatar } from "@/lib/avatar";
+import { fullColumnOrder } from "@/lib/meta";
 import { fetchSessionClaims } from "@/lib/blocks/auth";
 import { parseDate } from "@/lib/utils";
 
@@ -35,7 +37,14 @@ interface DataStore {
   tasks: Task[];
   projects: Project[];
   users: User[];
+  /** User-created board columns; the five built-ins are hard-coded in lib/meta. */
+  boardColumns: BoardColumn[];
+  /** Persisted column sequence (customs can sit between the built-ins). */
+  columnOrder: string[];
   currentUserId: string;
+  /** Session email of the signed-in user; avatars also key off this because the
+      internal user id can change between SSO logins while the email cannot. */
+  currentEmail: string;
   activities: Activity[];
   /** Real Blocks Notifier inbox of the signed-in user (same Activity shape). */
   notifications: Activity[];
@@ -51,6 +60,12 @@ interface DataStore {
   toggleTaskDone: (id: string) => Promise<Task>;
   createProject: (input: ProjectInput) => Promise<Project>;
   updateProject: (id: string, patch: ProjectInput) => Promise<Project>;
+  /** Add a custom board column, optionally at a position in the full column
+      sequence (defaults to the end). Persisted to the BoardColumn collection. */
+  createColumn: (label: string, position?: number) => Promise<BoardColumn>;
+  renameColumn: (id: string, label: string) => Promise<void>;
+  /** Blocked while any task still sits in the column. */
+  deleteColumn: (id: string) => Promise<void>;
   markActivityRead: (id: string) => Promise<void>;
   markAllActivitiesRead: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -60,8 +75,9 @@ interface DataStore {
   uploadAvatar: (file: File) => Promise<void>;
 }
 
-/** Remembers the pre-done status so un-completing restores context. */
-const statusBeforeDone = new Map<string, TaskStatus>();
+/** Remembers the pre-done status so un-completing restores context. Custom
+    column ids are strings too, so this is keyed on the raw status value. */
+const statusBeforeDone = new Map<string, string>();
 
 /** Fire-and-forget push through the Blocks Notifier, plus an email copy
     through Blocks Mail when the assignee has an address on file. A real team
@@ -114,7 +130,10 @@ export const useDataStore = create<DataStore>((set, get) => ({
   tasks: [],
   projects: [],
   users: [],
+  boardColumns: [],
+  columnOrder: [],
   currentUserId: "",
+  currentEmail: "",
   activities: [],
   notifications: [],
   avatarFileId: "",
@@ -156,7 +175,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
         ];
       }
       set({ currentUserId, users: members });
-      const [tasks, projects, activities, notifications, avatarFileIds] = await Promise.all([
+      const [tasks, projects, activities, notifications, avatarFileIds, board] = await Promise.all([
         taskService.listTasks(),
         projectService.listProjects(),
         activityService.listActivities(),
@@ -167,6 +186,9 @@ export const useDataStore = create<DataStore>((set, get) => ({
         currentUserId
           ? avatarService.getAllAvatarFileIds().catch(() => ({}) as Record<string, string>)
           : Promise.resolve({} as Record<string, string>),
+        // Custom columns: a missing/unconfigured BoardColumn collection just
+        // means the board shows the built-ins.
+        boardColumnService.loadBoard().catch(() => ({ columns: [] as BoardColumn[], order: [] as string[] })),
       ]);
       set({
         status: "ready",
@@ -175,7 +197,10 @@ export const useDataStore = create<DataStore>((set, get) => ({
         activities,
         notifications,
         avatarFileIds,
-        avatarFileId: avatarFileIds[currentUserId] ?? "",
+        avatarFileId: avatarFileIds[currentUserId] ?? (email ? avatarFileIds[email.toLowerCase()] : "") ?? "",
+        currentEmail: email,
+        boardColumns: board.columns,
+        columnOrder: board.order,
       });
     } catch (error) {
       set({
@@ -199,7 +224,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
   updateTask: async (id, patch) => {
     const prev = get().tasks.find((t) => t.id === id);
     if (!prev) throw new Error(`Task ${id} not found`);
-    const { task, activity } = await taskService.updateTask(id, patch, prev, get().currentUserId);
+    const { task, activity } = await taskService.updateTask(id, patch, prev, get().currentUserId, get().boardColumns);
     set((s) => ({
       tasks: s.tasks.map((t) => (t.id === id ? task : t)),
       activities: activity ? [activity, ...s.activities] : s.activities,
@@ -220,7 +245,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
   toggleTaskDone: async (id) => {
     const task = get().tasks.find((t) => t.id === id);
     if (!task) throw new Error(`Task ${id} not found`);
-    const nextStatus: TaskStatus = task.status === "done" ? (statusBeforeDone.get(id) ?? "todo") : "done";
+    const nextStatus: string = task.status === "done" ? (statusBeforeDone.get(id) ?? "todo") : "done";
     if (task.status !== "done") statusBeforeDone.set(id, task.status);
     return get().updateTask(id, { status: nextStatus });
   },
@@ -240,6 +265,59 @@ export const useDataStore = create<DataStore>((set, get) => ({
     const project = await projectService.updateProject(id, patch, prev);
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }));
     return project;
+  },
+
+  createColumn: async (label, position) => {
+    const clean = label.trim();
+    if (!clean) throw new Error("Give the column a name.");
+    const order = fullColumnOrder(get().boardColumns, get().columnOrder);
+    const at = Math.max(0, Math.min(position ?? order.length, order.length));
+    const column: BoardColumn = {
+      id: `col_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+      label: clean,
+      order: get().boardColumns.reduce((max, c) => Math.max(max, c.order), 0) + 1,
+    };
+    const nextOrder = [...order.slice(0, at), column.id, ...order.slice(at)];
+    await boardColumnService.createColumn(column);
+    // The sequence is a convenience layer; losing it only resets positions.
+    try {
+      await boardColumnService.saveColumnOrder(nextOrder);
+    } catch {
+      // Column itself is saved; the board falls back to default ordering.
+    }
+    set((s) => ({ boardColumns: [...s.boardColumns, column], columnOrder: nextOrder }));
+    return column;
+  },
+
+  renameColumn: async (id, label) => {
+    const clean = label.trim();
+    if (!clean) throw new Error("Give the column a name.");
+    const prev = get().boardColumns.find((c) => c.id === id);
+    if (!prev) throw new Error("Column not found");
+    if (prev.itemId) await boardColumnService.updateColumn(prev.itemId, { label: clean });
+    set((s) => ({ boardColumns: s.boardColumns.map((c) => (c.id === id ? { ...c, label: clean } : c)) }));
+  },
+
+  deleteColumn: async (id) => {
+    const column = get().boardColumns.find((c) => c.id === id);
+    if (!column) throw new Error("Column not found");
+    const inUse = get().tasks.filter((t) => t.status === id).length;
+    if (inUse > 0) {
+      throw new Error(
+        inUse === 1
+          ? "1 task is still in this column. Move it to another column first."
+          : `${inUse} tasks are still in this column. Move them to another column first.`,
+      );
+    }
+    if (column.itemId) await boardColumnService.deleteColumn(column.itemId);
+    const remaining = get().boardColumns.filter((c) => c.id !== id);
+    const nextOrder = fullColumnOrder(remaining, get().columnOrder);
+    try {
+      await boardColumnService.saveColumnOrder(nextOrder);
+    } catch {
+      // A stale id in the layout is harmless; display skips unknown ids.
+    }
+    set({ boardColumns: remaining, columnOrder: nextOrder });
   },
 
   markActivityRead: async (id) => {
@@ -270,13 +348,18 @@ export const useDataStore = create<DataStore>((set, get) => ({
   uploadAvatar: async (file) => {
     const userId = get().currentUserId;
     if (!userId) throw new Error("You need to be signed in.");
+    const email = get().currentEmail;
     const previous = get().avatarFileId;
     const fileId = await avatarService.uploadAvatarFile(file);
     invalidateAvatar(previous);
-    await avatarService.saveAvatar(userId, fileId);
+    await avatarService.saveAvatar(userId, fileId, email);
     set((s) => ({
       avatarFileId: fileId,
-      avatarFileIds: { ...s.avatarFileIds, [userId]: fileId },
+      avatarFileIds: {
+        ...s.avatarFileIds,
+        [userId]: fileId,
+        ...(email ? { [email.toLowerCase()]: fileId } : {}),
+      },
     }));
     // The replaced picture is soft-deleted; a cleanup failure is not fatal.
     if (previous) {

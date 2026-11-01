@@ -1,5 +1,6 @@
-import type { Activity, Task, TaskInput, TaskStatus } from "@/types";
+import type { Activity, BoardColumn, Task, TaskInput } from "@/types";
 import * as blocksData from "@/services/blocksData";
+import { columnLabel } from "@/lib/meta";
 
 /**
  * Task repository over the Blocks Data Gateway. Omitted patch fields keep
@@ -39,6 +40,7 @@ export async function updateTask(
   patch: TaskInput,
   prev: Task,
   actorId: string,
+  columns: BoardColumn[] = [],
 ): Promise<UpdateResult> {
   const activity: Activity | undefined =
     patch.status && patch.status !== prev.status
@@ -48,7 +50,7 @@ export async function updateTask(
           actorId,
           taskId: id,
           projectId: prev.projectId,
-          message: `moved “${prev.title}” to ${statusLabel(patch.status)}.`,
+          message: `moved “${prev.title}” to ${columnLabel(patch.status, columns)}.`,
           createdAt: new Date().toISOString(),
           read: true,
         }
@@ -70,17 +72,6 @@ export async function updateTask(
     task: { ...blocksData.mergeTask(prev, patch), id: blocksData.resultItemId(result) || id },
     activity,
   };
-}
-
-function statusLabel(status: TaskStatus): string {
-  const map = {
-    backlog: "Backlog",
-    todo: "To do",
-    in_progress: "In progress",
-    in_review: "In review",
-    done: "Done",
-  } as const;
-  return map[status];
 }
 
 export async function deleteTask(id: string): Promise<void> {

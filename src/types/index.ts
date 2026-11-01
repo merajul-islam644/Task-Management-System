@@ -7,6 +7,17 @@ export type TaskStatus =
   | "in_review"
   | "done";
 
+/** A custom board column added by the user. Tasks reference it by `id`. */
+export interface BoardColumn {
+  /** Stable id stored on Task.status; never collides with a TaskStatus value. */
+  id: string;
+  label: string;
+  /** Sort position after the built-in columns. */
+  order: number;
+  /** Blocks record id, set once the column is persisted. */
+  itemId?: string;
+}
+
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
 export interface Subtask {
@@ -19,7 +30,8 @@ export interface Task {
   id: string;
   title: string;
   description?: string;
-  status: TaskStatus;
+  /** A built-in TaskStatus, or the id of a custom board column. */
+  status: string;
   priority: TaskPriority;
   projectId: string;
   /** ISO date-time, or undefined when unscheduled */

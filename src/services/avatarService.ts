@@ -10,7 +10,7 @@ const CONFIGURATION_NAME = "Default";
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // storage config's 50 MB cap is generous; avatars don't need it
 
 const userProfiles = blocksClient.data.collection<Record<string, unknown>>("UserProfile", {
-  fields: ["userId", "avatarFileId"],
+  fields: ["userId", "email", "avatarFileId"],
 });
 
 export const AVATAR_MAX_FILE_BYTES = MAX_FILE_BYTES;
@@ -18,6 +18,7 @@ export const AVATAR_MAX_FILE_BYTES = MAX_FILE_BYTES;
 interface ProfileRow {
   itemId: string;
   userId: string;
+  email: string;
   avatarFileId: string;
 }
 
@@ -45,6 +46,7 @@ async function listProfiles(): Promise<ProfileRow[]> {
       rows.push({
         itemId: str(item.ItemId) || str(item.itemId),
         userId: str(item.userId),
+        email: str(item.email),
         avatarFileId: str(item.avatarFileId),
       });
     }
@@ -55,26 +57,37 @@ async function listProfiles(): Promise<ProfileRow[]> {
   return rows;
 }
 
-/** File ids for every member who has a picture, keyed by userId — one read
-    serves the whole workspace's avatars. */
+/** File ids for every member who has a picture, keyed by userId AND email —
+    one read serves the whole workspace's avatars, and the email key keeps a
+    picture findable when the session's internal user id changes between SSO
+    logins. */
 export async function getAllAvatarFileIds(): Promise<Record<string, string>> {
   const rows = await listProfiles();
   const map: Record<string, string> = {};
   for (const row of rows) {
-    if (row.userId && row.avatarFileId) map[row.userId] = row.avatarFileId;
+    if (!row.avatarFileId) continue;
+    if (row.userId) map[row.userId] = row.avatarFileId;
+    if (row.email) map[row.email.toLowerCase()] = row.avatarFileId;
   }
   return map;
 }
 
-/** Point a user's profile at a (newly uploaded) file id, creating the row if needed. */
-export async function saveAvatar(userId: string, fileId: string): Promise<void> {
+/** Point a user's profile at a (newly uploaded) file id, creating the row if
+    needed. The row is found by userId OR email — so a picture saved under an
+    earlier identity's id is picked up and re-keyed to the current one. */
+export async function saveAvatar(userId: string, fileId: string, email = ""): Promise<void> {
   const rows = await listProfiles();
-  const existing = rows.find((row) => row.userId === userId);
+  const normalizedEmail = email.toLowerCase();
+  const existing = rows.find(
+    (row) =>
+      (row.userId && row.userId === userId) ||
+      (normalizedEmail && row.email && row.email.toLowerCase() === normalizedEmail),
+  );
   if (existing?.itemId) {
-    await userProfiles.update(existing.itemId, { avatarFileId: fileId });
+    await userProfiles.update(existing.itemId, { userId, avatarFileId: fileId, email });
     return;
   }
-  const result = await userProfiles.create({ userId, avatarFileId: fileId });
+  const result = await userProfiles.create({ userId, email, avatarFileId: fileId });
   // A failed create would leave the upload orphaned — surface it.
   const record = isRecord(result) ? result : {};
   const data = isRecord(record.data) ? record.data : {};

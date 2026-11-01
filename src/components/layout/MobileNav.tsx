@@ -8,8 +8,8 @@ import { LogoMark } from "./Sidebar";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
-  { to: "/tasks", label: "My Tasks", icon: ListTodo },
   { to: "/projects", label: "Projects", icon: Folder },
+  { to: "/tasks", label: "My Tasks", icon: ListTodo },
   { to: "/calendar", label: "Calendar", icon: Calendar },
 ] as const;
 

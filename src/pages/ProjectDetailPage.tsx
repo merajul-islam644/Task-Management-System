@@ -11,11 +11,10 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
-import { STATUSES } from "@/lib/meta";
-import type { ProjectStatus, TaskStatus } from "@/types";
+import { hueMeta, columnOptions, projectStatusMeta } from "@/lib/meta";
+import type { ProjectStatus } from "@/types";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
-import { hueMeta, projectStatusMeta, statusMeta } from "@/lib/meta";
 import { toast } from "@/store/toast";
 import { Button, IconButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Feedback";
@@ -34,11 +33,12 @@ export function ProjectDetailPage() {
   const projects = useDataStore((s) => s.projects);
   const tasks = useDataStore((s) => s.tasks);
   const users = useDataStore((s) => s.users);
+  const boardColumns = useDataStore((s) => s.boardColumns);
   const updateProject = useDataStore((s) => s.updateProject);
   const openTaskForm = useUiStore((s) => s.openTaskForm);
   const openProjectForm = useUiStore((s) => s.openProjectForm);
 
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const project = projects.find((p) => p.id === projectId);
 
   const projectTasks = useMemo(
@@ -167,11 +167,8 @@ export function ProjectDetailPage() {
           <Select
             ariaLabel="Filter tasks by status"
             value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as TaskStatus | "")}
-            options={[
-              { value: "", label: "All statuses" },
-              ...STATUSES.map((s) => ({ value: s, label: statusMeta[s].label })),
-            ]}
+            onValueChange={setStatusFilter}
+            options={[{ value: "", label: "All statuses" }, ...columnOptions(boardColumns)]}
           />
           <Button variant="secondary" size="sm" onClick={() => openTaskForm({ projectId: project.id })}>
             <Plus size={13} aria-hidden />

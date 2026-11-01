@@ -24,8 +24,12 @@ export function Avatar({
   className?: string;
 }) {
   // Every member's picture ships with the workspace load; the component
-  // resolves its own so call sites never fetch per-avatar.
-  const fileId = useDataStore((s) => (user ? s.avatarFileIds[user.id] : undefined));
+  // resolves its own so call sites never fetch per-avatar. The email fallback
+  // keeps a picture attached to the person when their internal id changes
+  // between SSO logins.
+  const fileId = useDataStore((s) =>
+    user ? s.avatarFileIds[user.id] ?? s.avatarFileIds[user.email?.toLowerCase() ?? ""] : undefined,
+  );
   const storedUrl = useAvatarUrl(fileId || undefined);
   const photo = src || storedUrl;
 

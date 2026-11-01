@@ -6,12 +6,12 @@ import { Checkbox } from "@/components/ui/Switch";
 import { Select } from "@/components/ui/Select";
 import { DueChip, ProjectChip } from "./chips";
 import { TaskCheck } from "./TaskCheck";
-import { PRIORITIES, STATUSES, priorityMeta, statusMeta } from "@/lib/meta";
+import { PRIORITIES, columnOptions, priorityMeta } from "@/lib/meta";
 import { useDataStore } from "@/store/data";
 import { useUiStore } from "@/store/ui";
 import { toast } from "@/store/toast";
 import { cn } from "@/lib/utils";
-import type { TaskPriority, TaskStatus } from "@/types";
+import type { TaskPriority } from "@/types";
 
 /** Right-hand sheet with the full task: quick edits, subtasks, meta, delete. */
 export function TaskDetailPanel() {
@@ -22,6 +22,7 @@ export function TaskDetailPanel() {
   const tasks = useDataStore((s) => s.tasks);
   const projects = useDataStore((s) => s.projects);
   const users = useDataStore((s) => s.users);
+  const boardColumns = useDataStore((s) => s.boardColumns);
   const updateTask = useDataStore((s) => s.updateTask);
   const toggleDone = useDataStore((s) => s.toggleTaskDone);
 
@@ -81,8 +82,8 @@ export function TaskDetailPanel() {
               <Select
                 ariaLabel="Status"
                 value={task.status}
-                onValueChange={(v) => void change({ status: v as TaskStatus })}
-                options={STATUSES.map((s) => ({ value: s, label: statusMeta[s].label }))}
+                onValueChange={(v) => void change({ status: v })}
+                options={columnOptions(boardColumns)}
                 className="w-full"
               />
             </Field>
