@@ -95,6 +95,7 @@ interface DataStore {
   createOrg: (name: string, description?: string) => Promise<void>;
   /** Invite a user with an initial role, then refresh the member list. */
   inviteUser: (email: string, firstName: string, lastName: string, roles: string[]) => Promise<void>;
+  saveUserPermissions: (userId: string, permissionIds: string[]) => Promise<void>;
   /** Define a role, then refresh the role list. */
   createRole: (name: string, description?: string) => Promise<void>;
   /** Apply a permission delta to a role (itemIds), then refresh roles. */
@@ -438,6 +439,16 @@ export const useDataStore = create<DataStore>((set, get) => ({
     await userService.inviteUser(email, firstName, lastName, roles);
     const users = await userService.listWorkspaceUsers().catch(() => get().users);
     set({ users });
+  },
+
+  /** Overwrite a user's DIRECT permission set in the active organization —
+      the user-specific layer on top of their roles' permissions. IAM keeps
+      role grants untouched (an omitted roles list is kept), and nothing to
+      refetch locally: the set lives server-side and applies on the user's
+      next session evaluation. */
+  saveUserPermissions: async (userId, permissionIds) => {
+    const organizationId = get().activeOrgId || "default";
+    await userService.setUserPermissions(userId, organizationId, permissionIds);
   },
 
   /** Define a role, then refresh the role list (and grantable slugs — the

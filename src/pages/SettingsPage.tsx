@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/Switch";
 import { Select } from "@/components/ui/Select";
 import { Dialog, DialogContent, DialogHeader } from "@/components/ui/Dialog";
 import { listRolePermissionIds, type PermissionInfo } from "@/services/accessService";
+import { listUserPermissionIds } from "@/services/userService";
 import { cn, initials } from "@/lib/utils";
 
 const NOTIFICATIONS: { key: "assigned" | "dueReminders" | "mentions" | "weeklyDigest"; label: string; hint: string }[] = [
@@ -44,12 +45,14 @@ export function SettingsPage() {
   const roles = useDataStore((s) => s.roles);
   const permissions = useDataStore((s) => s.permissions);
   const inviteUser = useDataStore((s) => s.inviteUser);
+  const saveUserPermissions = useDataStore((s) => s.saveUserPermissions);
   const createRole = useDataStore((s) => s.createRole);
   const saveRolePermissions = useDataStore((s) => s.saveRolePermissions);
   const [createOpen, setCreateOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
   const [permissionsFor, setPermissionsFor] = useState<string | null>(null);
+  const [userPermissionsFor, setUserPermissionsFor] = useState<{ id: string; name: string } | null>(null);
 
   /** Org creation is an admin capability: only the clouduser role sees it. */
   const canCreateOrg = myRoles.includes("clouduser");
@@ -187,6 +190,13 @@ export function SettingsPage() {
                     <span className="block truncate text-[11.5px] text-ink-3">{user.email || "—"}</span>
                   </span>
                   <span className="shrink-0 text-[11.5px] text-ink-3">{user.role}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setUserPermissionsFor({ id: user.id, name: user.name })}
+                  >
+                    Permissions
+                  </Button>
                 </div>
               ))
             )}
@@ -342,6 +352,13 @@ export function SettingsPage() {
         slug={permissionsFor}
         onClose={() => setPermissionsFor(null)}
         onSave={saveRolePermissions}
+        permissions={permissions}
+      />
+      <ManageUserPermissionsDialog
+        user={userPermissionsFor}
+        organizationId={activeOrgId || "default"}
+        onClose={() => setUserPermissionsFor(null)}
+        onSave={saveUserPermissions}
         permissions={permissions}
       />
     </div>
@@ -674,55 +691,26 @@ function CreateRoleDialog({
 }
 
 /**
- * Manage-permissions dialog — the human sign-off for `iam.roles.assignPermissions`.
- * The admin builds the delta with checkboxes (nothing is sent while ticking),
- * sees a "+N / −M" summary, and only "Save changes" fires the call.
+ * Shared searchable permission checklist — grouped by resourceGroup with the
+ * API/UI badges. The catalog rides in on first mount via ensurePermissions(),
+ * never at boot: first paint must not pay for the editors' data.
  */
-function ManagePermissionsDialog({
-  slug,
-  onClose,
-  onSave,
+function PermissionCheckList({
   permissions,
+  checked,
+  onToggle,
 }: {
-  slug: string | null;
-  onClose: () => void;
-  onSave: (slug: string, addIds: string[], removeIds: string[]) => Promise<void>;
   permissions: PermissionInfo[];
+  checked: Set<string>;
+  onToggle: (itemId: string) => void;
 }) {
-  const [current, setCurrent] = useState<Set<string>>(new Set());
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
-  // The catalog rides in on first open, not at boot — the workspace load
-  // must not pay for the role editor's data.
   const permissionsLoading = useDataStore((s) => s.permissionsLoading);
   const ensurePermissions = useDataStore((s) => s.ensurePermissions);
 
-  // Fresh open: load the role's current permission ids from IAM.
   useEffect(() => {
-    if (!slug) return;
-    let cancelled = false;
-    setLoading(true);
-    setSearch("");
     void ensurePermissions();
-    listRolePermissionIds(slug)
-      .then((ids) => {
-        if (cancelled) return;
-        const set = new Set(ids);
-        setCurrent(set);
-        setChecked(new Set(set));
-      })
-      .catch(() => {
-        if (!cancelled) toast.error("Could not load the role's permissions", "Please try again.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
+  }, [ensurePermissions]);
 
   const byGroup = useMemo(() => {
     const groups = new Map<string, PermissionInfo[]>();
@@ -742,14 +730,118 @@ function ManagePermissionsDialog({
     permission.name.toLowerCase().includes(term) ||
     permission.resource.toLowerCase().includes(term);
 
-  const toggle = (itemId: string) => {
-    setChecked((prev) => {
+  return (
+    <>
+      <Input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Filter permissions…"
+        aria-label="Filter permissions"
+      />
+      {permissionsLoading ? (
+        <p className="py-8 text-center text-[13px] text-ink-3">Loading permissions…</p>
+      ) : permissions.length === 0 ? (
+        <p className="py-8 text-center text-[13px] text-ink-3">No permissions available.</p>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-ctl border border-line">
+          {byGroup.map(([group, list]) => {
+            const visible = list.filter(matches);
+            if (visible.length === 0) return null;
+            return (
+              <div key={group} className="border-b border-line last:border-b-0">
+                <p className="sticky top-0 bg-surface px-3 py-1.5 text-[11px] font-semibold tracking-wide text-ink-3">
+                  {group}
+                </p>
+                <ul className="pb-1">
+                  {visible.map((permission) => (
+                    <li key={permission.itemId}>
+                      <label className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[12.5px] transition-colors hover:bg-surface-hover">
+                        <input
+                          type="checkbox"
+                          checked={checked.has(permission.itemId)}
+                          onChange={() => onToggle(permission.itemId)}
+                          className="h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-ink">{permission.name}</span>
+                        {permission.type === 1 && (
+                          <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[10px] text-ink-3">
+                            API
+                          </span>
+                        )}
+                        {permission.type === 2 && (
+                          <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[10px] text-ink-3">
+                            UI
+                          </span>
+                        )}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The checkbox toggle both permission editors share. */
+function usePermissionToggles(checked: React.Dispatch<React.SetStateAction<Set<string>>>) {
+  return (itemId: string) => {
+    checked((prev) => {
       const next = new Set(prev);
       if (next.has(itemId)) next.delete(itemId);
       else next.add(itemId);
       return next;
     });
   };
+}
+
+/**
+ * Manage-permissions dialog — the human sign-off for `iam.roles.assignPermissions`.
+ * The admin builds the delta with checkboxes (nothing is sent while ticking),
+ * sees a "+N / −M" summary, and only "Save changes" fires the call.
+ */
+function ManagePermissionsDialog({
+  slug,
+  onClose,
+  onSave,
+  permissions,
+}: {
+  slug: string | null;
+  onClose: () => void;
+  onSave: (slug: string, addIds: string[], removeIds: string[]) => Promise<void>;
+  permissions: PermissionInfo[];
+}) {
+  const [current, setCurrent] = useState<Set<string>>(new Set());
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toggle = usePermissionToggles(setChecked);
+
+  // Fresh open: load the role's current permission ids from IAM.
+  useEffect(() => {
+    if (!slug) return;
+    let cancelled = false;
+    setLoading(true);
+    listRolePermissionIds(slug)
+      .then((ids) => {
+        if (cancelled) return;
+        const set = new Set(ids);
+        setCurrent(set);
+        setChecked(new Set(set));
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Could not load the role's permissions", "Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
 
   const adds = [...checked].filter((id) => !current.has(id));
   const removes = [...current].filter((id) => !checked.has(id));
@@ -777,55 +869,119 @@ function ManagePermissionsDialog({
           description="Tick what this role may do. API permissions gate the endpoints; UI ones gate visible controls."
         />
         <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter permissions…"
-            aria-label="Filter permissions"
-          />
-          {loading || permissionsLoading ? (
+          {loading ? (
             <p className="py-8 text-center text-[13px] text-ink-3">Loading permissions…</p>
-          ) : permissions.length === 0 ? (
-            <p className="py-8 text-center text-[13px] text-ink-3">No permissions available.</p>
           ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-ctl border border-line">
-              {byGroup.map(([group, list]) => {
-                const visible = list.filter(matches);
-                if (visible.length === 0) return null;
-                return (
-                  <div key={group} className="border-b border-line last:border-b-0">
-                    <p className="sticky top-0 bg-surface px-3 py-1.5 text-[11px] font-semibold tracking-wide text-ink-3">
-                      {group}
-                    </p>
-                    <ul className="pb-1">
-                      {visible.map((permission) => (
-                        <li key={permission.itemId}>
-                          <label className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[12.5px] transition-colors hover:bg-surface-hover">
-                            <input
-                              type="checkbox"
-                              checked={checked.has(permission.itemId)}
-                              onChange={() => toggle(permission.itemId)}
-                              className="h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-                            />
-                            <span className="min-w-0 flex-1 truncate text-ink">{permission.name}</span>
-                            {permission.type === 1 && (
-                              <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[10px] text-ink-3">
-                                API
-                              </span>
-                            )}
-                            {permission.type === 2 && (
-                              <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[10px] text-ink-3">
-                                UI
-                              </span>
-                            )}
-                          </label>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
+            <PermissionCheckList permissions={permissions} checked={checked} onToggle={toggle} />
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11.5px] text-ink-3" aria-live="polite">
+              {dirty ? (
+                <>
+                  Pending change: <span className="font-medium text-ok">+{adds.length}</span>{" "}
+                  <span className="font-medium text-danger">−{removes.length}</span>
+                </>
+              ) : (
+                "No changes yet."
+              )}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button variant="primary" disabled={!dirty || saving} onClick={onSaveClick}>
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
             </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Manage-user-permissions dialog — user-specific grants layered ON TOP of the
+ * user's roles (IAM evaluates role permissions plus these direct ones). IAM's
+ * users/access REPLACES the organization's whole direct set, so "Save
+ * changes" sends the full checked list; roles stay untouched because the
+ * call omits them. The human sign-off pattern is the role editor's.
+ */
+function ManageUserPermissionsDialog({
+  user,
+  organizationId,
+  onClose,
+  onSave,
+  permissions,
+}: {
+  user: { id: string; name: string } | null;
+  organizationId: string;
+  onClose: () => void;
+  onSave: (userId: string, permissionIds: string[]) => Promise<void>;
+  permissions: PermissionInfo[];
+}) {
+  const [current, setCurrent] = useState<Set<string>>(new Set());
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toggle = usePermissionToggles(setChecked);
+
+  // Fresh open: read the user's current direct set for this organization.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setLoading(true);
+    listUserPermissionIds(user.id, organizationId)
+      .then((ids) => {
+        if (cancelled) return;
+        const set = new Set(ids);
+        setCurrent(set);
+        setChecked(new Set(set));
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Could not load the user's permissions", "Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, organizationId]);
+
+  const adds = [...checked].filter((id) => !current.has(id));
+  const removes = [...current].filter((id) => !checked.has(id));
+  const dirty = adds.length > 0 || removes.length > 0;
+
+  const onSaveClick = async () => {
+    if (!user || !dirty) return;
+    setSaving(true);
+    try {
+      await onSave(user.id, [...checked]);
+      toast.success(
+        "User permissions updated",
+        `${user.name}: +${adds.length} / −${removes.length} direct`,
+      );
+      onClose();
+    } catch {
+      toast.error("Could not update the user's permissions", "Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent size="lg" aria-describedby={undefined}>
+        <DialogHeader
+          title={user ? `User permissions — ${user.name}` : "User permissions"}
+          description="Direct grants to this person in the active workspace, on top of what their roles allow."
+        />
+        <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
+          {loading ? (
+            <p className="py-8 text-center text-[13px] text-ink-3">Loading permissions…</p>
+          ) : (
+            <PermissionCheckList permissions={permissions} checked={checked} onToggle={toggle} />
           )}
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11.5px] text-ink-3" aria-live="polite">
