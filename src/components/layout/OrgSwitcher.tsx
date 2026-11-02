@@ -3,6 +3,7 @@ import { cn, initials } from "@/lib/utils";
 import { useDataStore } from "@/store/data";
 import { toast } from "@/store/toast";
 import { useI18n } from "@/lib/i18n";
+import { SwitchOrganizationError } from "@/services/organizationService";
 import { Menu, MenuTrigger, MenuContent, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/DropdownMenu";
 import { Tooltip } from "@/components/ui/Tooltip";
 
@@ -36,9 +37,18 @@ export function OrgSwitcher({ collapsed = false, alwaysVisible = false }: { coll
     const target = organizations.find((org) => org.id === id);
     switchOrg(id)
       .then(() => toast.success(t("org.switched", "Workspace switched"), target?.name ?? ""))
-      .catch(() =>
-        toast.error(t("org.switchFailed", "Could not switch workspace"), t("org.switchFailedHint", "Please try again.")),
-      );
+      .catch((error: unknown) => {
+        // A stale session can't be retried — the only fix is signing in again.
+        const expired = error instanceof SwitchOrganizationError && error.sessionExpired;
+        toast.error(
+          expired
+            ? t("org.sessionExpired", "Your session has expired")
+            : t("org.switchFailed", "Could not switch workspace"),
+          expired
+            ? t("org.sessionExpiredHint", "Sign in again, then switch workspace.")
+            : t("org.switchFailedHint", "Please try again."),
+        );
+      });
   };
 
   if (collapsed) {

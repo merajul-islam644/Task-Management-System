@@ -55,14 +55,47 @@ export async function listMyOrganizations(): Promise<MyOrganizationsResult> {
   return { organizations, activeId };
 }
 
+/** Raised when a switch is refused or silently dropped. `sessionExpired`
+    distinguishes the stale-session case so UI can say "sign in again"
+    instead of "try again" — retrying a dead session never works. */
+export class SwitchOrganizationError extends Error {
+  readonly sessionExpired: boolean;
+  constructor(message: string, sessionExpired = false) {
+    super(message);
+    this.name = "SwitchOrganizationError";
+    this.sessionExpired = sessionExpired;
+  }
+}
+
 /**
  * Move the session to another organization. The cookie flow keeps no local
  * tokens: IAM re-issues the session cookie scoped to the new org server-side,
  * so the caller must refetch session claims and workspace data afterwards —
  * until it does, every in-memory list still shows the previous org's data.
+ *
+ * Two ways this "succeeds" without switching, both guarded here: the auth
+ * SDK layer never throws on non-2xx (a stale session answers 401
+ * `session_expired` as a resolved body, which once showed a success toast
+ * over a failed switch), and only `iam.me()` knows which org the session is
+ * really scoped to — so the switch is confirmed by reading identity back,
+ * never by trusting the response shape.
  */
 export async function switchOrganization(organizationId: string): Promise<void> {
-  await blocksClient.auth.switchOrganization({ organizationId });
+  const response = await blocksClient.auth.switchOrganization({ organizationId });
+  const record = isRecord(response) ? response : {};
+  const error = str(record.error);
+  if (error) {
+    throw new SwitchOrganizationError(
+      error === "session_expired"
+        ? "Your session has expired — sign in again to switch workspace."
+        : `The platform refused the switch (${error}).`,
+      error === "session_expired",
+    );
+  }
+  const identity = await fetchMyIdentity();
+  if (identity.activeOrganizationId && identity.activeOrganizationId !== organizationId) {
+    throw new SwitchOrganizationError("The switch did not take effect — please try again.");
+  }
 }
 
 /** The signed-in user's identity bits that gate org UI: role slugs (e.g.
