@@ -23,13 +23,13 @@ export interface NotificationPayload {
 }
 
 /** The signed-in user's inbox, newest first, mapped onto the shared Activity
-    shape so the notification panel renders it like any other activity. */
+    shape so the notification panel renders it like any other activity.
+    Platform gotcha (verified live 2026-11-02): GetNotifications honors ONLY
+    PageSize — sending Page, Sort.IsDescending (even false) or IsUnreadOnly
+    returns zero or wrong rows, while the counts stay correct, so the inbox
+    silently read as empty. Newest-first is applied client-side by the panel. */
 export async function listNotifications(): Promise<Activity[]> {
-  const res = await blocksClient.notifier.getNotifications({
-    page: 1,
-    pageSize: PAGE_SIZE,
-    sortDescending: true,
-  });
+  const res = await blocksClient.notifier.getNotifications({ pageSize: PAGE_SIZE });
   return (res.notifications ?? [])
     .map((raw) => toActivity(raw))
     .filter((a): a is Activity => a !== null);
@@ -39,9 +39,19 @@ function toActivity(raw: Record<string, unknown>): Activity | null {
   const id = typeof raw.id === "string" ? raw.id : "";
   if (!id) return null;
   let payload: Partial<NotificationPayload> = {};
+  let title = "";
   if (typeof raw.denormalizedPayload === "string" && raw.denormalizedPayload) {
     try {
-      payload = JSON.parse(raw.denormalizedPayload) as Partial<NotificationPayload>;
+      const parsed = JSON.parse(raw.denormalizedPayload) as Partial<NotificationPayload> & {
+        title?: unknown;
+        description?: unknown;
+      };
+      payload = parsed;
+      // System notifications (e.g. iam-organization-setup-finished) carry
+      // title/description instead of the task payload's message.
+      const titleText = typeof parsed.title === "string" ? parsed.title : "";
+      const description = typeof parsed.description === "string" ? parsed.description : "";
+      title = [titleText, description].filter(Boolean).join(" — ");
     } catch {
       // A plain-text payload is still worth showing.
       payload = { message: raw.denormalizedPayload };
@@ -50,7 +60,7 @@ function toActivity(raw: Record<string, unknown>): Activity | null {
   return {
     id,
     kind: payload.kind ?? "project_update",
-    message: payload.message ?? "Notification",
+    message: payload.message || title || "Notification",
     actorId: payload.actorId,
     taskId: payload.taskId,
     projectId: payload.projectId,
