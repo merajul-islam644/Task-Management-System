@@ -115,7 +115,7 @@ export function OverviewPage() {
 
             <section
               aria-label="Upcoming"
-              className="flex flex-1 flex-col overflow-hidden rounded-card border border-line bg-surface"
+              className="flex flex-auto flex-col overflow-hidden rounded-card border border-line bg-surface"
             >
               <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
                 <h3 className="text-[13.5px] font-semibold">Upcoming</h3>
@@ -137,7 +137,7 @@ export function OverviewPage() {
 
             <section
               aria-label="Completed recently"
-              className="flex flex-1 flex-col overflow-hidden rounded-card border border-line bg-surface"
+              className="flex flex-auto flex-col overflow-hidden rounded-card border border-line bg-surface"
             >
               <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
                 <h3 className="flex items-center gap-2 text-[13.5px] font-semibold">
