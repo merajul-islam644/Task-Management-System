@@ -1,4 +1,5 @@
 import { blocksClient } from "@/lib/blocks/client";
+import { assertSuccess } from "@/lib/blocks/envelope";
 import type { HueName, User } from "@/types";
 
 /**
@@ -50,4 +51,38 @@ export async function listWorkspaceUsers(): Promise<User[]> {
   return (res.data ?? [])
     .map((member) => toUser(member as Record<string, unknown>))
     .filter((user): user is User => user !== null);
+}
+
+/**
+ * Invite (provision) a user into this tenant with an initial role. A
+ * tenant-mutating admin action — the settings screen's confirm dialog is the
+ * human sign-off this call lives behind. Roles are slugs.
+ */
+export async function inviteUser(
+  email: string,
+  firstName: string,
+  lastName: string,
+  roles: string[],
+): Promise<void> {
+  const body: Record<string, unknown> = { email };
+  if (firstName) body.firstName = firstName;
+  if (lastName) body.lastName = lastName;
+  if (roles.length > 0) body.roles = roles;
+  assertSuccess(await blocksClient.iam.users.create(body));
+}
+
+/**
+ * Make a user a member of an organization with a role there — IAM's
+ * `users/access` grant. This is the ONLY membership path that works:
+ * `organizationIds` on the user record is read-only via users.update, and a
+ * grant "first adds the organization" before listing roles. Roles are slugs.
+ */
+export async function grantUserOrganizationRole(
+  userId: string,
+  organizationId: string,
+  roles: string[],
+): Promise<void> {
+  assertSuccess(
+    await blocksClient.iam.users.updateAccess({ userId, organizationId, roles }),
+  );
 }

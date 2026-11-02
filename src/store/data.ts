@@ -15,6 +15,10 @@ import * as projectService from "@/services/projectService";
 import * as activityService from "@/services/activityService";
 import * as avatarService from "@/services/avatarService";
 import * as boardColumnService from "@/services/boardColumnService";
+import * as organizationService from "@/services/organizationService";
+import type { MyOrganization } from "@/services/organizationService";
+import * as accessService from "@/services/accessService";
+import type { PermissionInfo, RoleInfo } from "@/services/accessService";
 import * as notificationService from "@/services/notificationService";
 import * as userService from "@/services/userService";
 import * as mailService from "@/services/mailService";
@@ -41,6 +45,23 @@ interface DataStore {
   boardColumns: BoardColumn[];
   /** Persisted column sequence (customs can sit between the built-ins). */
   columnOrder: string[];
+  /** IAM organizations the signed-in user belongs to; switcher hides below 2. */
+  organizations: MyOrganization[];
+  /** The org the session is currently scoped to, when IAM reports one. */
+  activeOrgId: string;
+  /** True while an org switch + workspace refetch is in flight. */
+  switchingOrg: boolean;
+  /** The signed-in user's IAM role slugs; gates org-admin UI (clouduser). */
+  myRoles: string[];
+  /** IAM role definitions (settings admin); empty for non-admins. */
+  roles: RoleInfo[];
+  /** Role slugs the signed-in user may grant — the invite role picker. */
+  assignableRoles: string[];
+  /** Full IAM permission catalog (role editor's picker source). Fetched on
+      first need, not at boot — IAM paginates it and boot must not wait. */
+  permissions: PermissionInfo[];
+  /** True while that catalog fetch is in flight. */
+  permissionsLoading: boolean;
   currentUserId: string;
   /** Session email of the signed-in user; avatars also key off this because the
       internal user id can change between SSO logins while the email cannot. */
@@ -54,6 +75,8 @@ interface DataStore {
   avatarFileIds: Record<string, string>;
 
   load: () => Promise<void>;
+  /** Unconditional refetch of claims + workspace data; no status flip first. */
+  reloadCore: () => Promise<void>;
   createTask: (input: TaskInput) => Promise<Task>;
   updateTask: (id: string, patch: TaskInput) => Promise<Task>;
   deleteTask: (id: string) => Promise<void>;
@@ -66,6 +89,19 @@ interface DataStore {
   renameColumn: (id: string, label: string) => Promise<void>;
   /** Blocked while any task still sits in the column. */
   deleteColumn: (id: string) => Promise<void>;
+  /** Move the session to another organization, then refetch claims + data. */
+  switchOrg: (organizationId: string) => Promise<void>;
+  /** Create an organization (clouduser-only UI), then refresh the org list. */
+  createOrg: (name: string, description?: string) => Promise<void>;
+  /** Invite a user with an initial role, then refresh the member list. */
+  inviteUser: (email: string, firstName: string, lastName: string, roles: string[]) => Promise<void>;
+  /** Define a role, then refresh the role list. */
+  createRole: (name: string, description?: string) => Promise<void>;
+  /** Apply a permission delta to a role (itemIds), then refresh roles. */
+  saveRolePermissions: (slug: string, addIds: string[], removeIds: string[]) => Promise<void>;
+  /** Fetch the permission catalog once, on first need (manage-permissions
+      dialog); no-op when it is already in hand or a fetch is in flight. */
+  ensurePermissions: () => Promise<void>;
   markActivityRead: (id: string) => Promise<void>;
   markAllActivitiesRead: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -132,6 +168,14 @@ export const useDataStore = create<DataStore>((set, get) => ({
   users: [],
   boardColumns: [],
   columnOrder: [],
+  organizations: [],
+  activeOrgId: "",
+  switchingOrg: false,
+  myRoles: [],
+  roles: [],
+  assignableRoles: [],
+  permissions: [],
+  permissionsLoading: false,
   currentUserId: "",
   currentEmail: "",
   activities: [],
@@ -142,6 +186,15 @@ export const useDataStore = create<DataStore>((set, get) => ({
   load: async () => {
     if (get().status === "loading" || get().status === "ready") return;
     set({ status: "loading", error: undefined });
+    await get().reloadCore();
+  },
+
+  /** Refetch session claims and all workspace data without the one-shot guard
+      or a status flip — the path an org switch takes, since the session's org
+      context changed server-side and every list is now stale. A failure flips
+      to `status: "error"` on purpose: quietly showing the previous org's data
+      after a half-finished switch would be worse than an explicit error. */
+  reloadCore: async () => {
     try {
       // Real IAM members — the assignable teammates. Listing them needs a
       // permission the current role may not hold; a failure falls back to the
@@ -175,7 +228,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
         ];
       }
       set({ currentUserId, users: members });
-      const [tasks, projects, activities, notifications, avatarFileIds, board] = await Promise.all([
+      const [tasks, projects, activities, notifications, avatarFileIds, board, orgs, identity, access] = await Promise.all([
         taskService.listTasks(),
         projectService.listProjects(),
         activityService.listActivities(),
@@ -189,6 +242,22 @@ export const useDataStore = create<DataStore>((set, get) => ({
         // Custom columns: a missing/unconfigured BoardColumn collection just
         // means the board shows the built-ins.
         boardColumnService.loadBoard().catch(() => ({ columns: [] as BoardColumn[], order: [] as string[] })),
+        // Organizations: an IAM without multi-org just returns one (or none) —
+        // the switcher hides itself below two entries.
+        organizationService.listMyOrganizations().catch(() => ({ organizations: [] as MyOrganization[], activeId: "" })),
+        // Role slugs for feature gates (org creation needs `clouduser`) and
+        // the session's active org id; a failure just means the gated
+        // controls stay hidden and the switcher falls back to the first org.
+        organizationService
+          .fetchMyIdentity()
+          .catch(() => ({ roles: [] as string[], activeOrganizationId: "" })),
+        // Settings-admin data: role definitions and grantable slugs — both
+        // small, both cheap. The permission catalog stays out of boot; the
+        // manage-permissions dialog pulls it via ensurePermissions().
+        Promise.all([
+          accessService.listRoles().catch(() => []),
+          accessService.listAssignableRoleSlugs().catch(() => []),
+        ] as const),
       ]);
       set({
         status: "ready",
@@ -201,6 +270,13 @@ export const useDataStore = create<DataStore>((set, get) => ({
         currentEmail: email,
         boardColumns: board.columns,
         columnOrder: board.order,
+        organizations: orgs.organizations,
+        // iam/me's organizationId is authoritative (the my-list never marks
+        // the active one); the my-endpoint's flag is only a fallback.
+        activeOrgId: identity.activeOrganizationId || orgs.activeId,
+        myRoles: identity.roles,
+        roles: access[0],
+        assignableRoles: access[1],
       });
     } catch (error) {
       set({
@@ -318,6 +394,83 @@ export const useDataStore = create<DataStore>((set, get) => ({
       // A stale id in the layout is harmless; display skips unknown ids.
     }
     set({ boardColumns: remaining, columnOrder: nextOrder });
+  },
+
+  /** Move the session to another organization, then refetch everything. IAM
+      re-issues the session cookie for the new org server-side; the refetch is
+      what makes every list reflect the new context. Errors propagate to the
+      caller (the switcher surfaces them as a toast) and leave state intact. */
+  switchOrg: async (organizationId) => {
+    if (get().switchingOrg || organizationId === get().activeOrgId) return;
+    set({ switchingOrg: true });
+    try {
+      await organizationService.switchOrganization(organizationId);
+      await get().reloadCore();
+    } finally {
+      set({ switchingOrg: false });
+    }
+  },
+
+  /** Create an organization, grant the creator their current roles in it
+      (the users/access grant is IAM's membership-adding call — creating the
+      org alone does not), then refresh just the org list. The session stays
+      in the current org until the user switches. The settings screen's
+      confirm dialog is the human sign-off this call lives behind. */
+  createOrg: async (name, description = "") => {
+    const orgId = await organizationService.createOrganization(name, description);
+    const userId = get().currentUserId;
+    const memberIds = get().organizations.map((o) => o.id);
+    // clouduser is IAM's default member role; the creator carries it in the
+    // org they made unless they hold something narrower to replicate.
+    const roles = get().myRoles.length > 0 ? get().myRoles : ["clouduser"];
+    if (userId && orgId && !memberIds.includes(orgId)) {
+      await userService.grantUserOrganizationRole(userId, orgId, roles);
+    }
+    const orgs = await organizationService
+      .listMyOrganizations()
+      .catch(() => ({ organizations: get().organizations, activeId: get().activeOrgId }));
+    set({ organizations: orgs.organizations, activeOrgId: orgs.activeId });
+  },
+
+  /** Invite a user, then refresh the member list so they show immediately.
+      Errors propagate to the invite dialog (toasted there). */
+  inviteUser: async (email, firstName, lastName, roles) => {
+    await userService.inviteUser(email, firstName, lastName, roles);
+    const users = await userService.listWorkspaceUsers().catch(() => get().users);
+    set({ users });
+  },
+
+  /** Define a role, then refresh the role list (and grantable slugs — the
+      new role may now be assignable by this admin). */
+  createRole: async (name, description = "") => {
+    await accessService.createRole(name, description);
+    const [roles, assignableRoles] = await Promise.all([
+      accessService.listRoles().catch(() => get().roles),
+      accessService.listAssignableRoleSlugs().catch(() => get().assignableRoles),
+    ]);
+    set({ roles, assignableRoles });
+  },
+
+  /** Apply a permission delta to a role, then refresh the catalog (the
+      roles[] membership lists on permissions change with it). */
+  saveRolePermissions: async (slug, addIds, removeIds) => {
+    await accessService.assignRolePermissions(slug, addIds, removeIds);
+    const permissions = await accessService.listPermissions().catch(() => get().permissions);
+    set({ permissions });
+  },
+
+  /** Pull the permission catalog the first time the manage-permissions dialog
+      opens. Boot deliberately skips it: the catalog paginates, and first
+      paint must not wait on the role editor's data. */
+  ensurePermissions: async () => {
+    if (get().permissions.length > 0 || get().permissionsLoading) return;
+    set({ permissionsLoading: true });
+    try {
+      const permissions = await accessService.listPermissions();
+      set({ permissions });
+    } finally {
+      set({ permissionsLoading: false });
+    }
   },
 
   markActivityRead: async (id) => {

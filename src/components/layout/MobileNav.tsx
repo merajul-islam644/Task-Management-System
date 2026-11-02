@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useDataStore } from "@/store/data";
 import { hueMeta } from "@/lib/meta";
 import { LogoMark } from "./Sidebar";
+import { OrgSwitcher } from "./OrgSwitcher";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
@@ -85,6 +86,9 @@ export function MobileNav({ open, onOpenChange }: { open: boolean; onOpenChange:
           </nav>
 
           <div className="mt-auto border-t border-line px-2 py-2">
+            <div className="mb-1">
+              <OrgSwitcher />
+            </div>
             <NavLink
               to="/settings"
               onClick={() => onOpenChange(false)}

@@ -10,6 +10,7 @@ import { IconButton } from "@/components/ui/Button";
 import { Menu as DropMenu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/DropdownMenu";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { NotificationBell } from "./NotificationPanel";
+import { OrgSwitcher } from "./OrgSwitcher";
 import { initials } from "@/lib/utils";
 
 export function Topbar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
@@ -47,6 +48,9 @@ export function Topbar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
       </IconButton>
 
       <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
+        {/* Workspace switcher — always visible, left of the bell. */}
+        <OrgSwitcher alwaysVisible />
+
         <NotificationBell />
 
         <Tooltip content={isDark ? t("action.switchToLight") : t("action.switchToDark")}>

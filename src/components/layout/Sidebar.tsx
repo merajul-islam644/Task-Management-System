@@ -19,6 +19,7 @@ import { useAvatarUrl } from "@/lib/avatar";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { IconButton } from "@/components/ui/Button";
 import { HelpDialog } from "./HelpDialog";
+import { OrgSwitcher } from "./OrgSwitcher";
 
 const NAV = [
   { to: "/", key: "nav.overview", icon: LayoutDashboard },
@@ -108,6 +109,7 @@ export function Sidebar() {
 
       {/* Bottom */}
       <div className="flex flex-col gap-0.5 border-t border-line px-2 py-2">
+        <OrgSwitcher collapsed={collapsed} />
         <SidebarRow
           collapsed={collapsed}
           icon={Settings}
