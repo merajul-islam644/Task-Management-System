@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { format } from "date-fns";
 import type {
   Activity,
   AISuggestedTask,
@@ -21,12 +20,12 @@ import * as accessService from "@/services/accessService";
 import type { PermissionInfo, RoleInfo } from "@/services/accessService";
 import * as notificationService from "@/services/notificationService";
 import * as userService from "@/services/userService";
-import * as mailService from "@/services/mailService";
 import type { NotificationPayload } from "@/services/notificationService";
 import { invalidateAvatar } from "@/lib/avatar";
-import { fullColumnOrder } from "@/lib/meta";
+import { columnLabel, fullColumnOrder } from "@/lib/meta";
 import { fetchSessionClaims } from "@/lib/blocks/auth";
-import { parseDate } from "@/lib/utils";
+import { dueLabel, parseDate } from "@/lib/utils";
+import { useUiStore } from "@/store/ui";
 
 /**
  * Client-side state over the Blocks Data Gateway. Components never touch the
@@ -116,12 +115,13 @@ interface DataStore {
     column ids are strings too, so this is keyed on the raw status value. */
 const statusBeforeDone = new Map<string, string>();
 
-/** Fire-and-forget push through the Blocks Notifier, plus an email copy
-    through Blocks Mail when the assignee has an address on file. A real team
-    would skip notifying the actor about their own change; with a single-member
-    demo workspace the self-notification is what makes the bell visibly work. */
+/** Fire-and-forget push through the Blocks Notifier to a task's assignee.
+    Email copies are deliberately skipped for now (pending mail setup). A real
+    team would skip notifying the actor about their own change; with a
+    single-member demo workspace the self-notification is what makes the bell
+    visibly work. */
 function pushTaskNotification(
-  state: { currentUserId: string; users: User[]; projects: Project[] },
+  actorId: string | undefined,
   kind: NotificationPayload["kind"],
   message: string,
   task: Task,
@@ -134,7 +134,7 @@ function pushTaskNotification(
       payload: {
         kind,
         message,
-        actorId: state.currentUserId || undefined,
+        actorId: actorId || undefined,
         taskId: task.id,
         projectId: task.projectId || undefined,
       },
@@ -142,24 +142,48 @@ function pushTaskNotification(
     .catch(() => {
       // A failed push (offline, missing send permission) is not fatal.
     });
+}
 
-  const assignee = state.users.find((user) => user.id === assigneeId);
-  if (!assignee?.email) return;
-  const actor = state.users.find((user) => user.id === state.currentUserId);
-  const project = state.projects.find((p) => p.id === task.projectId);
-  mailService
-    .sendTaskAssignedEmail({
-      to: assignee.email,
-      assigneeName: assignee.name,
-      actorName: actor?.name ?? "A teammate",
-      taskTitle: task.title,
-      projectName: project?.name ?? "your workspace",
-      dueDate: task.dueDate ? format(parseDate(task.dueDate), "MMM d, yyyy") : "No due date",
-      appUrl: window.location.origin,
-    })
-    .catch(() => {
-      // A failed email (mail outage, missing template) is not fatal either.
-    });
+const DUE_SOON_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+const DUE_SOON_SEEN_KEY = "flowtask.dueSoonSeen";
+
+/** Reminders for open, assigned tasks due within the next two days (or
+    already overdue), sent once per task+dueDate through the Notifier. This is
+    a client-side sweep on every workspace load, not a scheduler — the
+    seen-marks live in localStorage, so a device only reminds while someone
+    actually uses the app. Honors the Settings "due date reminders" toggle. */
+function notifyDueSoonTasks(tasks: Task[]): void {
+  if (!useUiStore.getState().notifications.dueReminders) return;
+  let seen: Record<string, true> = {};
+  try {
+    seen = JSON.parse(localStorage.getItem(DUE_SOON_SEEN_KEY) ?? "{}") as Record<string, true>;
+  } catch {
+    // A broken mark just means the reminder may repeat.
+  }
+  const horizon = Date.now() + DUE_SOON_WINDOW_MS;
+  const due = tasks.filter((task) => {
+    if (!task.assigneeId || task.status === "done" || !task.dueDate) return false;
+    const time = parseDate(task.dueDate).getTime();
+    if (Number.isNaN(time) || time > horizon) return false;
+    return !seen[`${task.id}:${task.dueDate}`];
+  });
+  for (const task of due) {
+    const label = dueLabel(task.dueDate);
+    pushTaskNotification(
+      undefined,
+      "due_soon",
+      label?.tone === "overdue" ? `"${task.title}" is overdue` : `"${task.title}" is due ${label?.text ?? "soon"}`,
+      task,
+    );
+    seen[`${task.id}:${task.dueDate}`] = true;
+  }
+  if (due.length) {
+    try {
+      localStorage.setItem(DUE_SOON_SEEN_KEY, JSON.stringify(seen));
+    } catch {
+      // Without marks the same reminder may repeat next load — acceptable.
+    }
+  }
 }
 
 export const useDataStore = create<DataStore>((set, get) => ({
@@ -279,6 +303,9 @@ export const useDataStore = create<DataStore>((set, get) => ({
         roles: access[0],
         assignableRoles: access[1],
       });
+      // Remind about open tasks due within two days (or overdue) — after the
+      // data lands, before the UI unblocks; sends are fire-and-forget.
+      notifyDueSoonTasks(tasks);
     } catch (error) {
       set({
         status: "error",
@@ -294,7 +321,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
       assigneeId: input.assigneeId ?? get().currentUserId,
     });
     set((s) => ({ tasks: [task, ...s.tasks] }));
-    pushTaskNotification(get(), "assigned", `assigned you a task: ${task.title}`, task);
+    pushTaskNotification(get().currentUserId, "assigned", `assigned you a task: ${task.title}`, task);
     return task;
   },
 
@@ -306,8 +333,28 @@ export const useDataStore = create<DataStore>((set, get) => ({
       tasks: s.tasks.map((t) => (t.id === id ? task : t)),
       activities: activity ? [activity, ...s.activities] : s.activities,
     }));
-    if (task.assigneeId && task.assigneeId !== prev.assigneeId) {
-      pushTaskNotification(get(), "assigned", `assigned you a task: ${task.title}`, task);
+    // One notification per edit — the most significant change wins: an
+    // assignment over a completion over a column move over a due-date tweak.
+    if (task.assigneeId) {
+      if (task.assigneeId !== prev.assigneeId) {
+        pushTaskNotification(get().currentUserId, "assigned", `assigned you a task: ${task.title}`, task);
+      } else if (task.status !== prev.status) {
+        if (task.status === "done") {
+          pushTaskNotification(get().currentUserId, "completed", `completed a task: ${task.title}`, task);
+        } else {
+          const label = columnLabel(task.status, get().boardColumns);
+          pushTaskNotification(get().currentUserId, "status_changed", `moved "${task.title}" to ${label}`, task);
+        }
+      } else if (task.dueDate !== prev.dueDate) {
+        pushTaskNotification(
+          get().currentUserId,
+          "project_update",
+          task.dueDate
+            ? `changed the due date of "${task.title}" — now ${dueLabel(task.dueDate)?.text ?? task.dueDate}`
+            : `removed the due date from "${task.title}"`,
+          task,
+        );
+      }
     }
     return task;
   },
